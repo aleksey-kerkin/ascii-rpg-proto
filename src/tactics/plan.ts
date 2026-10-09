@@ -1,4 +1,5 @@
 import { apply, reachable } from '../core';
+import { cellAt, inBounds } from '../core/grid';
 import type { BattleState, Command, Coord, Unit } from '../core';
 
 const DIRS: readonly Coord[] = [
@@ -120,4 +121,79 @@ export function strikeHighlights(state: BattleState): string[] {
   return state.units
     .filter((candidate) => candidate.alive && candidate.team === 'machines' && planStrike(state, candidate.id).length > 0)
     .map((candidate) => candidate.id);
+}
+
+function occupant(state: BattleState, pos: Coord, exceptId: string): boolean {
+  return state.units.some((unit) => unit.alive && unit.id !== exceptId && unit.pos.x === pos.x && unit.pos.y === pos.y);
+}
+
+function place(state: BattleState, unitId: string, pos: Coord): BattleState {
+  return {
+    ...state,
+    units: state.units.map((unit) => (unit.id === unitId ? { ...unit, pos, ap: 1000 } : unit)),
+  };
+}
+
+function distancesTo(state: BattleState, travelerId: string, targetId: string): Map<string, number> {
+  const target = state.units.find((unit) => unit.id === targetId && unit.alive);
+  const dist = new Map<string, number>();
+  if (!target) return dist;
+  dist.set(key(target.pos), 0);
+  const queue: Coord[] = [target.pos];
+  while (queue.length > 0) {
+    const cell = queue.shift();
+    if (!cell) break;
+    const base = dist.get(key(cell));
+    if (base === undefined) continue;
+    for (const dir of DIRS) {
+      const next = { x: cell.x + dir.x, y: cell.y + dir.y };
+      if (dist.has(key(next)) || !inBounds(state.map, next) || occupant(state, next, travelerId)) continue;
+      const stood = cellAt(state.map, next);
+      if (!stood || stood.wall) continue;
+      const step = apply(place(state, travelerId, next), { type: 'move', unitId: travelerId, to: cell });
+      const ontoTarget = cell.x === target.pos.x && cell.y === target.pos.y;
+      if (!step.ok && !(ontoTarget && step.error === 'occupied')) continue;
+      dist.set(key(next), base + 1);
+      queue.push(next);
+    }
+  }
+  return dist;
+}
+
+export function planMachine(state: BattleState): Command[] {
+  const active = activeUnit(state);
+  if (!active || active.team !== 'machines') return [];
+  const allies = state.units
+    .filter((unit) => unit.alive && unit.team === 'party')
+    .sort((left, right) => left.hp - right.hp || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  for (const ally of allies) {
+    const strike = planStrike(state, ally.id);
+    if (strike.length > 0) return strike;
+  }
+  let chosen: { id: string; dist: number } | undefined;
+  for (const ally of state.units.filter((unit) => unit.alive && unit.team === 'party')) {
+    const dist = distancesTo(state, active.id, ally.id).get(key(active.pos));
+    if (dist === undefined) continue;
+    if (!chosen || dist < chosen.dist || (dist === chosen.dist && ally.id < chosen.id)) chosen = { id: ally.id, dist };
+  }
+  if (!chosen) return [{ type: 'endTurn', unitId: active.id }];
+  const metric = distancesTo(state, active.id, chosen.id);
+  const here = metric.get(key(active.pos));
+  let goal: Coord | undefined;
+  for (const coord of reachable(state, active.id)) {
+    const dist = metric.get(key(coord));
+    if (here === undefined || dist === undefined || dist >= here) continue;
+    const goalDist = goal ? metric.get(key(goal)) : undefined;
+    if (
+      !goal
+      || goalDist === undefined
+      || dist < goalDist
+      || (dist === goalDist && (coord.y < goal.y || (coord.y === goal.y && coord.x < goal.x)))
+    ) {
+      goal = coord;
+    }
+  }
+  if (!goal) return [{ type: 'endTurn', unitId: active.id }];
+  const walk = planMove(state, goal);
+  return walk.length > 0 ? walk : [{ type: 'endTurn', unitId: active.id }];
 }

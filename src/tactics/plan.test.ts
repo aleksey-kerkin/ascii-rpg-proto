@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply, createBattle } from '../core';
 import type { BattleSetup, BattleState, Cell, Coord, SetupUnit } from '../core';
-import { moveHighlights, planMove, planStrike, strikeHighlights } from './plan';
+import { moveHighlights, planMachine, planMove, planStrike, strikeHighlights } from './plan';
 
 function cell(height = 0, wall = false, cover = 0): Cell {
   return { height, wall, cover };
@@ -123,5 +123,59 @@ describe('highlights and planStrike', () => {
       { type: 'move', unitId: 'a', to: { x: 2, y: 1 } },
       { type: 'attack', unitId: 'a', targetId: 'c' },
     ]);
+  });
+});
+
+describe('planMachine', () => {
+  it('attacks the living party unit with the lowest hp, then the smaller id', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 3),
+      units: [
+        fighter('b', 'party', 1, 0, { hp: 8 }),
+        fighter('a', 'party', 0, 1, { hp: 8 }),
+        fighter('c', 'machines', 1, 1, { accuracy: 100, damage: 4 }),
+      ],
+    }, 'c');
+    const cursor = state.rng.cursor;
+    expect(planMachine(state)).toEqual([{ type: 'attack', unitId: 'c', targetId: 'a' }]);
+    const wounded = activate({
+      seed: 1,
+      map: board(3, 3),
+      units: [
+        fighter('a', 'party', 1, 0, { hp: 8 }),
+        fighter('b', 'party', 0, 1, { hp: 3 }),
+        fighter('c', 'machines', 1, 1),
+      ],
+    }, 'c');
+    expect(planMachine(wounded)).toEqual([{ type: 'attack', unitId: 'c', targetId: 'b' }]);
+    expect(state.rng.cursor).toBe(cursor);
+  });
+
+  it('walks to the reachable cell strictly closer to the chosen party unit', () => {
+    const state = activate({
+      seed: 1,
+      map: board(4, 1),
+      units: [fighter('a', 'party', 3, 0), fighter('c', 'machines', 0, 0)],
+    }, 'c');
+    expect(planMachine(state)).toEqual([
+      { type: 'move', unitId: 'c', to: { x: 1, y: 0 } },
+      { type: 'move', unitId: 'c', to: { x: 2, y: 0 } },
+    ]);
+  });
+
+  it('ends the turn when it cannot attack or get closer', () => {
+    const state = activate({
+      seed: 1,
+      map: board(2, 1),
+      units: [fighter('a', 'party', 1, 0), fighter('c', 'machines', 0, 0, { maxAp: 1 })],
+    }, 'c');
+    expect(planMachine(state)).toEqual([{ type: 'endTurn', unitId: 'c' }]);
+    const party = activate({
+      seed: 1,
+      map: board(2, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 1, 0)],
+    }, 'a');
+    expect(planMachine(party)).toEqual([]);
   });
 });
