@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createBattle } from '../core';
 import type { BattleState, Cell, Command, Coord } from '../core';
 import { AsciiPass } from '../ascii';
+import { tagUnit } from '../scene';
 import { makeHuman, loadRobotFactory } from '../units';
 import { firstEncounter } from '../tactics/encounter';
 import { pointerGesture } from '../tactics/gesture';
@@ -99,12 +100,13 @@ function disposeHighlights() {
 }
 
 function addHighlight(coord: Coord, color: number) {
+  // Opaque and unit-tagged so the ASCII pass keeps the highlight hue.
+  // A transparent blend with the floor falls under the environment grade and disappears.
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.85, 0.85),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false }),
+    new THREE.BoxGeometry(0.82, 0.06, 0.82),
+    tagUnit(new THREE.MeshBasicMaterial({ color })),
   );
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(coord.x, floorYAt(coord.x, coord.y) + 0.02, coord.y);
+  mesh.position.set(coord.x, floorYAt(coord.x, coord.y) + 0.14, coord.y);
   mesh.raycast = () => {};
   highlightGroup.add(mesh);
   highlightPieces.push(mesh);
@@ -274,11 +276,29 @@ loadRobotFactory('models/RobotExpressive.glb').then((makeRobot) => {
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 
+function unitIdOf(object: THREE.Object3D): string | undefined {
+  let node: THREE.Object3D | null = object;
+  while (node) {
+    for (const [id, fig] of figuresById) {
+      if (fig.root === node) return id;
+    }
+    node = node.parent;
+  }
+  return undefined;
+}
+
 function pickFloor(event: PointerEvent): { x: number; y: number } | null {
   const rect = renderer.domElement.getBoundingClientRect();
   ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(ndc, camera);
+  const figures = [...figuresById.values()].filter((fig) => fig.root.visible).map((fig) => fig.root);
+  const figureHit = raycaster.intersectObjects(figures, true)[0];
+  if (figureHit) {
+    const id = unitIdOf(figureHit.object);
+    const unit = id ? state.units.find((candidate) => candidate.id === id && candidate.alive) : undefined;
+    if (unit) return { x: unit.pos.x, y: unit.pos.y };
+  }
   const hits = raycaster.intersectObjects(floorMeshes, false);
   if (hits.length === 0) return null;
   const data = hits[0].object.userData as { x: number; y: number };
