@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "capture": "node scripts/capture.mjs"
+    "capture": "node scripts/capture.mjs",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -19,7 +20,8 @@
     "@types/three": "^0.186.0",
     "playwright": "^1.64.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
   },
   "type": "module"
 }
