@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
+<title>ASCII Simulation — battle</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 10px; top: 8px; color: #5dff8a; font: 12px/1.35 "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    text-shadow: 0 0 6px #0f6; opacity: .85; pointer-events: none; white-space: pre;
+    background: rgba(0,10,0,.55); padding: 6px 9px; border: 1px solid rgba(80,255,130,.25);
+  }
+  #end-turn {
+    position: fixed; left: 10px; bottom: 12px; color: #5dff8a; font: 12px/1.35 "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    background: rgba(0,10,0,.7); border: 1px solid rgba(80,255,130,.45); padding: 6px 10px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<button id="end-turn" type="button">End turn</button>
+<script type="module" src="/src/battle/main.ts"></script>
+</body>
+</html>
