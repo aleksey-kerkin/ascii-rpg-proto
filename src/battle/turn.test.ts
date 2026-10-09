@@ -15,18 +15,8 @@ function fighter(id: string, team: string, x: number, y: number, extra: Partial<
   return { id, team, pos: { x, y }, hp: 8, maxHp: 8, maxAp: 3, accuracy: 100, damage: 4, ...extra };
 }
 
-function withBenchTeam(setup: BattleSetup): BattleSetup {
-  const teams = new Set(setup.units.map((unit) => unit.team));
-  if (teams.size >= 2) return setup;
-  const { width, height } = setup.map;
-  return {
-    ...setup,
-    units: [...setup.units, fighter('_bench', 'machines', width - 1, height - 1, { hp: 1, maxHp: 1, maxAp: 1, accuracy: 0, damage: 0 })],
-  };
-}
-
 function activate(setup: BattleSetup, id: string): BattleState {
-  const created = createBattle(withBenchTeam(setup));
+  const created = createBattle(setup);
   if (!created.ok) throw new Error(created.error);
   return {
     ...created.state,
@@ -98,8 +88,22 @@ describe('settleMachines', () => {
 });
 
 describe('scriptCommands', () => {
+  function withBenchTeam(setup: BattleSetup): BattleSetup {
+    const teams = new Set(setup.units.map((unit) => unit.team));
+    if (teams.size >= 2) return setup;
+    const { width, height } = setup.map;
+    return {
+      ...setup,
+      units: [...setup.units, fighter('_bench', 'machines', width - 1, height - 1, { hp: 1, maxHp: 1, maxAp: 1, accuracy: 0, damage: 0 })],
+    };
+  }
+
+  function activateWithBench(setup: BattleSetup, id: string): BattleState {
+    return activate(withBenchTeam(setup), id);
+  }
+
   it('records one step per accepted move and leaves the input state alone', () => {
-    const state = activate({
+    const state = activateWithBench({
       seed: 1,
       map: board(4, 1),
       units: [fighter('a', 'party', 0, 0)],
@@ -121,7 +125,7 @@ describe('scriptCommands', () => {
   });
 
   it('drops a refused command and keeps the earlier step', () => {
-    const state = activate({
+    const state = activateWithBench({
       seed: 1,
       map: board(3, 1),
       units: [fighter('a', 'party', 0, 0)],
@@ -174,7 +178,7 @@ describe('scriptCommands', () => {
   });
 
   it('returns the same state and no beats for an empty list', () => {
-    const state = activate({
+    const state = activateWithBench({
       seed: 1,
       map: board(2, 1),
       units: [fighter('a', 'party', 0, 0)],
