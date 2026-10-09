@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createBattle } from '../core';
+import { apply, createBattle } from '../core';
 import type { BattleSetup, BattleState, Cell, SetupUnit } from '../core';
-import { runCommands, settleMachines } from './turn';
+import { runCommands, scriptCommands, scriptSettle, settleMachines } from './turn';
 
 function cell(): Cell {
   return { height: 0, wall: false, cover: 0 };
@@ -84,5 +84,139 @@ describe('settleMachines', () => {
     const settled = settleMachines(state);
     expect(settled.state.status).toEqual({ kind: 'decided', winner: 'machines' });
     expect(settled.log).toBe('c hits a for 4');
+  });
+});
+
+describe('scriptCommands', () => {
+  function withBenchTeam(setup: BattleSetup): BattleSetup {
+    const teams = new Set(setup.units.map((unit) => unit.team));
+    if (teams.size >= 2) return setup;
+    const { width, height } = setup.map;
+    return {
+      ...setup,
+      units: [...setup.units, fighter('_bench', 'machines', width - 1, height - 1, { hp: 1, maxHp: 1, maxAp: 1, accuracy: 0, damage: 0 })],
+    };
+  }
+
+  function activateWithBench(setup: BattleSetup, id: string): BattleState {
+    return activate(withBenchTeam(setup), id);
+  }
+
+  it('records one step per accepted move and leaves the input state alone', () => {
+    const state = activateWithBench({
+      seed: 1,
+      map: board(4, 1),
+      units: [fighter('a', 'party', 0, 0)],
+    }, 'a');
+    const cursor = state.rng.cursor;
+    const played = scriptCommands(state, [
+      { type: 'move', unitId: 'a', to: { x: 1, y: 0 } },
+      { type: 'move', unitId: 'a', to: { x: 2, y: 0 } },
+    ]);
+    expect(played.beats).toEqual([
+      { kind: 'step', unitId: 'a', to: { x: 1, y: 0 } },
+      { kind: 'step', unitId: 'a', to: { x: 2, y: 0 } },
+    ]);
+    expect(played.state.units.find((unit) => unit.id === 'a')?.pos).toEqual({ x: 2, y: 0 });
+    expect(played.log).toBe('a moves to 2,0');
+    expect(state.units.find((unit) => unit.id === 'a')?.pos).toEqual({ x: 0, y: 0 });
+    expect(state.rng.cursor).toBe(cursor);
+    expect(played.state.rng.cursor).toBe(cursor);
+  });
+
+  it('drops a refused command and keeps the earlier step', () => {
+    const state = activateWithBench({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0)],
+    }, 'a');
+    const played = scriptCommands(state, [
+      { type: 'move', unitId: 'a', to: { x: 1, y: 0 } },
+      { type: 'move', unitId: 'a', to: { x: 9, y: 0 } },
+    ]);
+    expect(played.beats).toEqual([{ kind: 'step', unitId: 'a', to: { x: 1, y: 0 } }]);
+    expect(played.state.units.find((unit) => unit.id === 'a')?.pos).toEqual({ x: 1, y: 0 });
+  });
+
+  it('records a hit as -4 and a miss as miss', () => {
+    const hit = activate({
+      seed: 1,
+      map: board(2, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 })],
+    }, 'c');
+    const struck = scriptCommands(hit, [{ type: 'attack', unitId: 'c', targetId: 'a' }]);
+    expect(struck.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(struck.state.units.find((unit) => unit.id === 'a')?.hp).toBe(4);
+    expect(struck.log).toBe('c hits a for 4');
+
+    const miss = activate({
+      seed: 1,
+      map: board(2, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 1, 0, { accuracy: 0, damage: 4 })],
+    }, 'c');
+    const attack = { type: 'attack' as const, unitId: 'c', targetId: 'a' };
+    const once = scriptCommands(miss, [attack]);
+    const direct = apply(miss, attack);
+    expect(once.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: 'miss' }]);
+    expect(once.state.units.find((unit) => unit.id === 'a')?.hp).toBe(8);
+    expect(once.state.rng.cursor).toBe(direct.state.rng.cursor);
+    expect(once.log).toBe('c misses a');
+  });
+
+  it('stops after a killing blow', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0, { hp: 4, maxHp: 4 }), fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 })],
+    }, 'c');
+    const played = scriptCommands(state, [
+      { type: 'attack', unitId: 'c', targetId: 'a' },
+      { type: 'endTurn', unitId: 'c' },
+    ]);
+    expect(played.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(played.state.status).toEqual({ kind: 'decided', winner: 'machines' });
+  });
+
+  it('returns the same state and no beats for an empty list', () => {
+    const state = activateWithBench({
+      seed: 1,
+      map: board(2, 1),
+      units: [fighter('a', 'party', 0, 0)],
+    }, 'a');
+    const played = scriptCommands(state, []);
+    expect(played.state).toBe(state);
+    expect(played.beats).toEqual([]);
+    expect(played.log).toBe('');
+  });
+});
+
+describe('scriptSettle', () => {
+  it('plays the next machine after the first activation and records only real beats', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [
+        fighter('a', 'party', 0, 0),
+        fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 }),
+        fighter('d', 'machines', 2, 0, { accuracy: 100, damage: 4 }),
+      ],
+    }, 'c');
+    const queued = { ...state, queue: ['c', 'd', 'a'], activeIndex: 0 };
+    const settled = scriptSettle(queued);
+    expect(settled.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(settled.state.queue[settled.state.activeIndex]).toBe('a');
+    expect(settled.state.units.find((unit) => unit.id === 'a')?.hp).toBe(4);
+    expect(settled.log).toBe('c hits a for 4');
+  });
+
+  it('does not append an endTurn beat after a killing blow', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0, { hp: 4, maxHp: 4 }), fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 })],
+    }, 'c');
+    const settled = scriptSettle(state);
+    expect(settled.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(settled.state.status).toEqual({ kind: 'decided', winner: 'machines' });
   });
 });
