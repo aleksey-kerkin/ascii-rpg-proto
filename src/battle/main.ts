@@ -208,8 +208,8 @@ function setRing(fig: Figure, team: string, active: boolean) {
     fig.ring = undefined;
   }
   const teamColor = team === 'party' ? 0x20e8ff : 0xff2a2a;
-  const inner = active ? 0.3 : 0.36;
-  const outer = active ? 0.58 : 0.46;
+  const inner = active ? 0.22 : 0.28;
+  const outer = active ? 0.64 : 0.52;
   const ring = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 24), new THREE.MeshBasicMaterial({ color: teamColor }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.015;
@@ -218,10 +218,23 @@ function setRing(fig: Figure, team: string, active: boolean) {
   fig.ring = ring;
 }
 
+function addGlow(root: THREE.Object3D, color: number) {
+  const material = tagUnit(new THREE.MeshBasicMaterial({ color }));
+  const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+  for (let i = 0; i < 8; i += 1) {
+    const angle = (i / 8) * Math.PI * 2;
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(Math.cos(angle) * 0.42, 0.72, Math.sin(angle) * 0.42);
+    mesh.raycast = () => {};
+    root.add(mesh);
+  }
+}
+
 function registerFigure(unitId: string, team: string, obj: Figure) {
   scene.add(obj.root);
   figuresById.set(unitId, obj);
   setRing(obj, team, state.queue[state.activeIndex] === unitId);
+  addGlow(obj.root, team === 'party' ? 0x20e8ff : 0xff2a2a);
 }
 
 function placeFigures() {
