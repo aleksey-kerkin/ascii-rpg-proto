@@ -45,11 +45,12 @@ export function makeHuman(color: number, opts: { coat?: boolean; visor?: number;
   root.scale.setScalar(1.25);
 
   let phase = 0;
-  const animate = (dt: number, moving: boolean, time: number) => {
+  const animate = (dt: number, moving: boolean, time: number, strike?: boolean) => {
     phase += dt * (moving ? 9 : 0);
     const s = moving ? Math.sin(phase) : 0;
     legL.rotation.x = s * 0.7; legR.rotation.x = -s * 0.7;
-    armL.rotation.x = -s * 0.6; armR.rotation.x = moving ? s * 0.3 - 0.4 : -0.9 + Math.sin(time * 1.3) * 0.05;
+    armL.rotation.x = -s * 0.6;
+    armR.rotation.x = strike === true ? -1.6 : moving ? s * 0.3 - 0.4 : -0.9 + Math.sin(time * 1.3) * 0.05;
     rig.position.y = moving ? Math.abs(Math.cos(phase)) * 0.04 : Math.sin(time * 2) * 0.01;
     torso.rotation.y = moving ? s * 0.1 : 0;
   };
@@ -88,10 +89,19 @@ export async function loadRobotFactory(url: string) {
     punch.setLoop(THREE.LoopOnce, 1); punch.clampWhenFinished = false;
     idle.play(); walk.play(); walk.setEffectiveWeight(0);
     let w = 0; let nextPunch = 3 + Math.random() * 3;
-    const animate = (dt: number, moving: boolean, time: number) => {
+    let striking = false;
+    const animate = (dt: number, moving: boolean, time: number, strike?: boolean) => {
       w += ((moving ? 1 : 0) - w) * Math.min(1, dt * 6);
       walk.setEffectiveWeight(w); idle.setEffectiveWeight(1 - w);
-      if (!moving && time > nextPunch) { punch.reset().play(); nextPunch = time + 4 + Math.random() * 3; }
+      if (strike === true) {
+        if (!striking) { punch.reset().play(); striking = true; }
+      } else {
+        striking = false;
+        if (strike === undefined && !moving && time > nextPunch) {
+          punch.reset().play();
+          nextPunch = time + 4 + Math.random() * 3;
+        }
+      }
       mixer.update(dt);
     };
     return { root, animate };

@@ -13,7 +13,9 @@ import {
   planStrike,
   strikeHighlights,
 } from '../tactics/plan';
-import { runCommands, settleMachines } from './turn';
+import { scriptCommands, scriptSettle, type Beat } from './turn';
+import { spawnBeats } from './spawn';
+import { captionFrame } from './caption';
 
 const params = new URLSearchParams(location.search);
 const CAPTURE = params.has('capture');
@@ -25,6 +27,15 @@ let state: BattleState = created.state;
 const MAP_W = state.map.width;
 const MAP_H = state.map.height;
 
+const STEP_S = 0.32;
+const STRIKE_POSE_S = 0.4;
+
+type Phase = 'loading' | 'spawn' | 'live' | 'failed';
+let phase: Phase = 'loading';
+
+type Runner = { beats: Beat[]; index: number; elapsed: number; from: THREE.Vector3 | null };
+let runner: Runner | null = null;
+
 const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: CAPTURE });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -33,6 +44,37 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const world = new THREE.Group();
 scene.add(world);
+
+const captionCanvas = document.createElement('canvas');
+captionCanvas.width = 256;
+captionCanvas.height = 64;
+const captionTex = new THREE.CanvasTexture(captionCanvas);
+captionTex.magFilter = THREE.LinearFilter;
+const caption = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.4, 0.35),
+  tagUnit(new THREE.MeshBasicMaterial({ map: captionTex, transparent: true, depthWrite: false })),
+);
+caption.visible = false;
+caption.raycast = () => {};
+scene.add(caption);
+
+function paintCaption(text: string, color: number, alpha: number) {
+  const ctx = captionCanvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.font = '48px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+  captionTex.needsUpdate = true;
+  caption.visible = alpha > 0 && text.length > 0;
+}
+
+function teamColor(team: string): number {
+  return team === 'party' ? 0x20e8ff : 0xff2a2a;
+}
 
 const std = (color: number, emissive = 0x000000, ei = 0) =>
   new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: ei, roughness: 0.9, metalness: 0.05, flatShading: true });
@@ -195,9 +237,24 @@ resize();
 
 type Figure = {
   root: THREE.Object3D;
-  animate: (dt: number, moving: boolean, time: number) => void;
+  animate: (dt: number, moving: boolean, time: number, strike?: boolean) => void;
   ring?: THREE.Mesh;
 };
+
+function face(fig: Figure, to: { x: number; y: number }) {
+  const dx = to.x - fig.root.position.x;
+  const dz = to.y - fig.root.position.z;
+  if (dx * dx + dz * dz < 1e-6) return;
+  fig.root.rotation.y = Math.atan2(dx, dz);
+}
+
+function markRing(unitId: string) {
+  for (const unit of state.units) {
+    const fig = figuresById.get(unit.id);
+    if (!fig) continue;
+    setRing(fig, unit.team, unit.id === unitId);
+  }
+}
 const figuresById = new Map<string, Figure>();
 
 function setRing(fig: Figure, team: string, active: boolean) {
@@ -218,6 +275,15 @@ function setRing(fig: Figure, team: string, active: boolean) {
   fig.ring = ring;
 }
 
+function patchAt(fig: Figure) {
+  const world = fig.root.position.clone();
+  world.y += 0.8;
+  world.project(camera);
+  const col = (world.x * 0.5 + 0.5) * ascii.grid.x;
+  const row = (world.y * 0.5 + 0.5) * ascii.grid.y;
+  ascii.setPatch({ x: col, y: row });
+}
+
 function addGlow(root: THREE.Object3D, color: number) {
   const material = tagUnit(new THREE.MeshBasicMaterial({ color }));
   const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
@@ -231,6 +297,7 @@ function addGlow(root: THREE.Object3D, color: number) {
 }
 
 function registerFigure(unitId: string, team: string, obj: Figure) {
+  obj.root.visible = false;
   scene.add(obj.root);
   figuresById.set(unitId, obj);
   setRing(obj, team, state.queue[state.activeIndex] === unitId);
@@ -263,28 +330,85 @@ function remember(nextLog: string) {
   if (nextLog) log = nextLog;
 }
 
-function play(commands: Command[]) {
-  if (state.status.kind === 'decided') return;
-  const played = runCommands(state, commands);
-  state = played.state;
-  remember(played.log);
-  selection = null;
-  const settled = settleMachines(state);
-  state = settled.state;
-  remember(settled.log);
+function onDrained() {
+  if (phase === 'spawn') {
+    phase = 'live';
+    const settled = scriptSettle(state);
+    state = settled.state;
+    remember(settled.log);
+    startBeats(settled.beats);
+    return;
+  }
+  runner = null;
+  ascii.setPatch(null);
+  caption.visible = false;
   placeFigures();
 }
 
-play([]);
+function startBeats(beats: Beat[]) {
+  if (beats.length === 0) {
+    onDrained();
+    return;
+  }
+  runner = { beats, index: 0, elapsed: 0, from: null };
+  beginBeat();
+}
+
+function beginBeat() {
+  if (!runner) return;
+  const beat = runner.beats[runner.index];
+  const fig = figuresById.get(beat.unitId);
+  runner.elapsed = 0;
+  runner.from = null;
+  if (!fig) {
+    runner.index += 1;
+    if (runner.index >= runner.beats.length) onDrained();
+    else beginBeat();
+    return;
+  }
+  markRing(beat.unitId);
+  if (beat.kind === 'spawn') {
+    const unit = state.units.find((candidate) => candidate.id === beat.unitId);
+    if (!unit) return;
+    const cell = cellAt(unit.pos.x, unit.pos.y);
+    fig.root.position.set(unit.pos.x, cell.height * 0.45, unit.pos.y);
+    fig.root.visible = true;
+  }
+  if (beat.kind === 'step') runner.from = fig.root.position.clone();
+  if (beat.kind === 'strike') {
+    const target = state.units.find((candidate) => candidate.id === beat.targetId);
+    if (target) face(fig, target.pos);
+  }
+}
+
+function finishBeat() {
+  if (!runner) return;
+  runner.index += 1;
+  if (runner.index >= runner.beats.length) onDrained();
+  else beginBeat();
+}
+
+function play(commands: Command[]) {
+  if (phase !== 'live' || runner || state.status.kind === 'decided') return;
+  const played = scriptCommands(state, commands);
+  const settled = scriptSettle(played.state);
+  state = settled.state;
+  remember(played.log);
+  remember(settled.log);
+  selection = null;
+  disposeHighlights();
+  startBeats([...played.beats, ...settled.beats]);
+}
 
 const hud = document.getElementById('hud')!;
 let ready = false;
 loadRobotFactory('models/RobotExpressive.glb').then((makeRobot) => {
   registerFigure('c', 'machines', makeRobot(0xff3030, 1.35));
   registerFigure('d', 'machines', makeRobot(0xff6a20, 1.7));
-  placeFigures();
+  phase = 'spawn';
+  startBeats(spawnBeats(['a', 'b', 'c', 'd'], ['c', 'd']));
   ready = true;
-});
+}).catch(() => { phase = 'failed'; });
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -327,6 +451,7 @@ function onPointerUp(event: PointerEvent) {
   cam.az = saved.az;
   cam.el = saved.el;
   placeCamera();
+  if (runner || phase !== 'live') return;
   const active = activeUnit(state);
   if (state.status.kind === 'decided' || !active || active.team !== 'party') {
     selection = null;
@@ -401,6 +526,7 @@ addEventListener('wheel', (e) => {
 });
 
 document.getElementById('end-turn')!.addEventListener('click', () => {
+  if (runner || phase !== 'live') return;
   const active = activeUnit(state);
   if (active?.team === 'party') play([{ type: 'endTurn', unitId: active.id }]);
 });
@@ -427,8 +553,6 @@ function updateHud() {
   hud.textContent = text;
 }
 
-placeFigures();
-
 let time = 0;
 function step(dt: number) {
   time += dt;
@@ -438,7 +562,47 @@ function step(dt: number) {
   if (keys.has('ArrowUp')) cam.el = Math.min(1.2, cam.el + dt * 0.8);
   if (keys.has('ArrowDown')) cam.el = Math.max(0.25, cam.el - dt * 0.8);
   placeCamera();
-  for (const fig of figuresById.values()) fig.animate(dt, false, time);
+  const beat = runner?.beats[runner.index];
+  const actor = beat ? figuresById.get(beat.unitId) : undefined;
+  if (runner && beat && actor) {
+    runner.elapsed += dt;
+    if (beat.kind === 'step' && runner.from) {
+      const t = Math.min(1, runner.elapsed / STEP_S);
+      const cell = cellAt(beat.to.x, beat.to.y);
+      const dest = new THREE.Vector3(beat.to.x, cell.height * 0.45, beat.to.y);
+      actor.root.position.lerpVectors(runner.from, dest, t);
+      face(actor, beat.to);
+      actor.animate(dt, true, time, false);
+      if (t >= 1) finishBeat();
+    } else if (beat.kind === 'strike' || beat.kind === 'spawn') {
+      const lines = beat.kind === 'spawn' ? beat.lines : [beat.text];
+      const frame = captionFrame(lines, runner.elapsed * 1000);
+      const ownerId = beat.kind === 'strike' ? beat.targetId : beat.unitId;
+      const owner = state.units.find((unit) => unit.id === ownerId);
+      const ownerFig = figuresById.get(ownerId);
+      if (owner && ownerFig) {
+        paintCaption(frame.text, teamColor(owner.team), frame.alpha);
+        caption.position.set(ownerFig.root.position.x, ownerFig.root.position.y + 1.45, ownerFig.root.position.z);
+        caption.lookAt(camera.position);
+        patchAt(ownerFig);
+      }
+      actor.animate(dt, false, time, beat.kind === 'strike' && runner.elapsed < STRIKE_POSE_S);
+      if (frame.done) {
+        if (beat.kind === 'strike') {
+          const target = state.units.find((unit) => unit.id === beat.targetId);
+          const targetFig = target ? figuresById.get(target.id) : undefined;
+          if (target && targetFig && !target.alive) targetFig.root.visible = false;
+        }
+        ascii.setPatch(null);
+        caption.visible = false;
+        finishBeat();
+      }
+    }
+  }
+  for (const [id, fig] of figuresById) {
+    if (actor && fig === actor) continue;
+    fig.animate(dt, false, time, false);
+  }
   ascii.render(scene, camera, time);
   updateHud();
 }
