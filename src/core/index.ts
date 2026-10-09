@@ -17,3 +17,4 @@ export type {
   TeamId,
   Unit,
 } from './types';
+export { lineOfSight, reachable } from './queries';
