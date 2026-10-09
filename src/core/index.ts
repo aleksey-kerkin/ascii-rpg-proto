@@ -18,4 +18,4 @@ export type {
   Unit,
 } from './types';
 export { lineOfSight, reachable } from './queries';
-export { createBattle } from './reduce';
+export { apply, createBattle } from './reduce';
