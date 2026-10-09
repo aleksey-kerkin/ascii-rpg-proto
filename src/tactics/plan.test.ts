@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply, createBattle } from '../core';
 import type { BattleSetup, BattleState, Cell, Coord, SetupUnit } from '../core';
-import { planMove } from './plan';
+import { moveHighlights, planMove, planStrike, strikeHighlights } from './plan';
 
 function cell(height = 0, wall = false, cover = 0): Cell {
   return { height, wall, cover };
@@ -70,5 +70,58 @@ describe('planMove', () => {
     }, 'a');
     expect(planMove(state, { x: 2, y: 0 })).toEqual([]);
     expect(planMove(state, { x: 0, y: 0 })).toEqual([]);
+  });
+});
+
+describe('highlights and planStrike', () => {
+  it('highlights reachable cells only while a party unit is active', () => {
+    const party = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 2, 0)],
+    }, 'a');
+    expect(moveHighlights(party)).toEqual([{ x: 1, y: 0 }]);
+    const machine = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 2, 0)],
+    }, 'c');
+    expect(moveHighlights(machine)).toEqual([]);
+    expect(strikeHighlights(machine)).toEqual([]);
+  });
+
+  it('highlights an adjacent machine and confirms a bare attack', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 1, 0)],
+    }, 'a');
+    expect(strikeHighlights(state)).toEqual(['c']);
+    const cursor = state.rng.cursor;
+    expect(planStrike(state, 'c')).toEqual([{ type: 'attack', unitId: 'a', targetId: 'c' }]);
+    expect(state.rng.cursor).toBe(cursor);
+  });
+
+  it('does not highlight a machine the attack cannot afford', () => {
+    const state = activate({
+      seed: 1,
+      map: board(1, 5),
+      units: [fighter('a', 'party', 0, 0), fighter('c', 'machines', 0, 4)],
+    }, 'a');
+    expect(strikeHighlights(state)).toEqual([]);
+    expect(planStrike(state, 'c')).toEqual([]);
+    expect(planStrike(state, 'missing')).toEqual([]);
+  });
+
+  it('approaches through the nearer cell, breaking ties by smaller y then smaller x', () => {
+    const state = activate({
+      seed: 1,
+      map: board(4, 4),
+      units: [fighter('a', 'party', 1, 1), fighter('c', 'machines', 2, 2)],
+    }, 'a');
+    expect(planStrike(state, 'c')).toEqual([
+      { type: 'move', unitId: 'a', to: { x: 2, y: 1 } },
+      { type: 'attack', unitId: 'a', targetId: 'c' },
+    ]);
   });
 });
