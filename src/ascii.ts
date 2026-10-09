@@ -29,6 +29,9 @@ uniform float edgeOn;
 uniform float depthThr;
 uniform float gain;
 uniform float haloDim;
+uniform float patchOn;
+uniform vec2 patchCenter;
+uniform float patchRadius;
 ${HASH}
 const float EDGE0 = ${EDGE_START}.0;
 const float RAIN0 = ${RAIN_START}.0;
@@ -59,6 +62,10 @@ void main(){
         sCell.x += floor((h.w-0.5)*10.0);
       }
     }
+  }
+  if(patchOn > 0.5 && distance(cell, patchCenter) <= patchRadius){
+    glitched = 1.0;
+    sCell.x += floor((h21(cell + slot) - 0.5) * 8.0);
   }
 
   // ---- gather scene samples under the cell
@@ -208,6 +215,9 @@ export class AsciiPass {
         res: { value: new THREE.Vector2() }, cellPx: { value: new THREE.Vector2() }, grid: { value: this.grid },
         time: { value: 0 }, rainAmt: { value: 0.6 }, glitchAmt: { value: 0.35 }, edgeOn: { value: 1 },
         depthThr: { value: 0.008 }, gain: { value: 1.15 }, haloDim: { value: 0.45 },
+        patchOn: { value: 0 },
+        patchCenter: { value: new THREE.Vector2() },
+        patchRadius: { value: 3 },
       },
     });
     this.draw = new THREE.ShaderMaterial({
@@ -230,6 +240,13 @@ export class AsciiPass {
   }
 
   setCellSize(px: number) { this.cellSize = Math.max(4, Math.min(32, px)); this.updateCells(); }
+
+  setPatch(cell: { x: number; y: number } | null) {
+    const on = this.analyse.uniforms.patchOn;
+    const center = this.analyse.uniforms.patchCenter;
+    on.value = cell ? 1 : 0;
+    if (cell) center.value.set(cell.x, cell.y);
+  }
 
   private updateCells() {
     const W = Math.floor(this.width * this.pixelRatio), H = Math.floor(this.height * this.pixelRatio);
