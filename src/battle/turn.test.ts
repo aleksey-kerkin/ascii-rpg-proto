@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply, createBattle } from '../core';
 import type { BattleSetup, BattleState, Cell, SetupUnit } from '../core';
-import { runCommands, scriptCommands, settleMachines } from './turn';
+import { runCommands, scriptCommands, scriptSettle, settleMachines } from './turn';
 
 function cell(): Cell {
   return { height: 0, wall: false, cover: 0 };
@@ -187,5 +187,36 @@ describe('scriptCommands', () => {
     expect(played.state).toBe(state);
     expect(played.beats).toEqual([]);
     expect(played.log).toBe('');
+  });
+});
+
+describe('scriptSettle', () => {
+  it('plays the next machine after the first activation and records only real beats', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [
+        fighter('a', 'party', 0, 0),
+        fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 }),
+        fighter('d', 'machines', 2, 0, { accuracy: 100, damage: 4 }),
+      ],
+    }, 'c');
+    const queued = { ...state, queue: ['c', 'd', 'a'], activeIndex: 0 };
+    const settled = scriptSettle(queued);
+    expect(settled.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(settled.state.queue[settled.state.activeIndex]).toBe('a');
+    expect(settled.state.units.find((unit) => unit.id === 'a')?.hp).toBe(4);
+    expect(settled.log).toBe('c hits a for 4');
+  });
+
+  it('does not append an endTurn beat after a killing blow', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [fighter('a', 'party', 0, 0, { hp: 4, maxHp: 4 }), fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 })],
+    }, 'c');
+    const settled = scriptSettle(state);
+    expect(settled.beats).toEqual([{ kind: 'strike', unitId: 'c', targetId: 'a', text: '-4' }]);
+    expect(settled.state.status).toEqual({ kind: 'decided', winner: 'machines' });
   });
 });

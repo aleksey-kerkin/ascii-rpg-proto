@@ -52,20 +52,28 @@ export function runCommands(state: BattleState, commands: readonly Command[]): {
   return { state: played.state, log: played.log };
 }
 
-export function settleMachines(state: BattleState): { state: BattleState; log: string } {
+export function scriptSettle(state: BattleState): Script {
+  const beats: Beat[] = [];
   let log = '';
   for (let guard = 0; guard < 8; guard += 1) {
     const active = activeUnit(state);
     if (!active || active.team !== 'machines') break;
-    const played = runCommands(state, planMachine(state));
+    const played = scriptCommands(state, planMachine(state));
     state = played.state;
+    beats.push(...played.beats);
     if (played.log) log = played.log;
     if (state.status.kind === 'decided') break;
     const still = activeUnit(state);
     if (still?.id !== active.id) continue;
-    const ended = runCommands(state, [{ type: 'endTurn', unitId: active.id }]);
+    const ended = scriptCommands(state, [{ type: 'endTurn', unitId: active.id }]);
     state = ended.state;
+    beats.push(...ended.beats);
     if (ended.log) log = ended.log;
   }
-  return { state, log };
+  return { state, beats, log };
+}
+
+export function settleMachines(state: BattleState): { state: BattleState; log: string } {
+  const played = scriptSettle(state);
+  return { state: played.state, log: played.log };
 }
