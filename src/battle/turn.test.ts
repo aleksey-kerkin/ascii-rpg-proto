@@ -58,6 +58,23 @@ describe('settleMachines', () => {
     expect(settled.state.queue[settled.state.activeIndex]).toBe('a');
   });
 
+  it('plays the next machine after the first activation ends', () => {
+    const state = activate({
+      seed: 1,
+      map: board(3, 1),
+      units: [
+        fighter('a', 'party', 0, 0),
+        fighter('c', 'machines', 1, 0, { accuracy: 100, damage: 4 }),
+        fighter('d', 'machines', 2, 0, { accuracy: 100, damage: 4 }),
+      ],
+    }, 'c');
+    const queued = { ...state, queue: ['c', 'd', 'a'], activeIndex: 0 };
+    const settled = settleMachines(queued);
+    expect(settled.state.queue[settled.state.activeIndex]).toBe('a');
+    expect(settled.state.units.find((unit) => unit.id === 'a')?.hp).toBe(4);
+    expect(settled.log).toBe('c hits a for 4');
+  });
+
   it('does not send endTurn after the killing blow decides the battle', () => {
     const state = activate({
       seed: 1,
