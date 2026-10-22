@@ -3,7 +3,8 @@ import { createBattle } from '../core';
 import type { BattleState, Cell, Command, Coord } from '../core';
 import { AsciiPass } from '../ascii';
 import { tagUnit } from '../scene';
-import { makeHuman, loadRobotFactory } from '../units';
+import { loadHumanFactory, loadRobotFactory } from '../units';
+import { patchEllipse, pxToCells } from '../pixels';
 import { firstEncounter } from '../tactics/encounter';
 import { pointerGesture } from '../tactics/gesture';
 import {
@@ -29,6 +30,7 @@ const MAP_H = state.map.height;
 
 const STEP_S = 0.32;
 const STRIKE_POSE_S = 0.4;
+const STRIKE_PATCH_HALF_AXIS_SCALE = 1 / 2.5 / 2;
 
 type Phase = 'loading' | 'spawn' | 'live' | 'failed';
 let phase: Phase = 'loading';
@@ -275,25 +277,46 @@ function setRing(fig: Figure, team: string, active: boolean) {
   fig.ring = ring;
 }
 
-function patchAt(fig: Figure) {
-  const world = fig.root.position.clone();
-  world.y += 0.8;
-  world.project(camera);
-  const col = (world.x * 0.5 + 0.5) * ascii.grid.x;
-  const row = (world.y * 0.5 + 0.5) * ascii.grid.y;
-  ascii.setPatch({ x: col, y: row });
-}
-
-function addGlow(root: THREE.Object3D, color: number) {
-  const material = tagUnit(new THREE.MeshBasicMaterial({ color }));
-  const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
-  for (let i = 0; i < 8; i += 1) {
-    const angle = (i / 8) * Math.PI * 2;
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(Math.cos(angle) * 0.42, 0.72, Math.sin(angle) * 0.42);
-    mesh.raycast = () => {};
-    root.add(mesh);
+function patchAt(fig: Figure, halfAxisScale = 1) {
+  const box = new THREE.Box3().setFromObject(fig.root);
+  if (box.isEmpty()) {
+    ascii.setPatch(null);
+    return;
   }
+  const xs = [box.min.x, box.max.x];
+  const ys = [box.min.y, box.max.y];
+  const zs = [box.min.z, box.max.z];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const x of xs) {
+    for (const y of ys) {
+      for (const z of zs) {
+        const p = new THREE.Vector3(x, y, z).project(camera);
+        const px = (p.x * 0.5 + 0.5) * ascii.analyse.uniforms.res.value.x;
+        const py = (p.y * 0.5 + 0.5) * ascii.analyse.uniforms.res.value.y;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+    }
+  }
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (!(w > 0) || !(h > 0)) {
+    ascii.setPatch(null);
+    return;
+  }
+  const ellipse = patchEllipse({ x: minX, y: minY, w, h });
+  const cell = ascii.analyse.uniforms.cellPx.value;
+  ascii.setPatch({
+    centerX: pxToCells(ellipse.centerX, cell.x),
+    centerY: pxToCells(ellipse.centerY, cell.y),
+    halfW: pxToCells(ellipse.halfW, cell.x) * halfAxisScale,
+    halfH: pxToCells(ellipse.halfH, cell.y) * halfAxisScale,
+  });
 }
 
 function registerFigure(unitId: string, team: string, obj: Figure) {
@@ -301,7 +324,6 @@ function registerFigure(unitId: string, team: string, obj: Figure) {
   scene.add(obj.root);
   figuresById.set(unitId, obj);
   setRing(obj, team, state.queue[state.activeIndex] === unitId);
-  addGlow(obj.root, team === 'party' ? 0x20e8ff : 0xff2a2a);
 }
 
 function placeFigures() {
@@ -317,9 +339,6 @@ function placeFigures() {
   }
   rebuildHighlights();
 }
-
-registerFigure('a', 'party', makeHuman(0x30f0ff));
-registerFigure('b', 'party', makeHuman(0x70ffc0, { coat: true, visor: 0x30f0ff }));
 
 type Selection = { kind: 'move'; x: number; y: number } | { kind: 'strike'; id: string } | null;
 let selection: Selection = null;
@@ -402,7 +421,12 @@ function play(commands: Command[]) {
 
 const hud = document.getElementById('hud')!;
 let ready = false;
-loadRobotFactory('models/RobotExpressive.glb').then((makeRobot) => {
+Promise.all([
+  loadHumanFactory('models/Human.glb'),
+  loadRobotFactory('models/RobotExpressive.glb'),
+]).then(([makeParty, makeRobot]) => {
+  registerFigure('a', 'party', makeParty(0x30f0ff, 1.3));
+  registerFigure('b', 'party', makeParty(0x70ffc0, 1.3));
   registerFigure('c', 'machines', makeRobot(0xff3030, 1.35));
   registerFigure('d', 'machines', makeRobot(0xff6a20, 1.7));
   phase = 'spawn';
@@ -584,7 +608,7 @@ function step(dt: number) {
         paintCaption(frame.text, teamColor(owner.team), frame.alpha);
         caption.position.set(ownerFig.root.position.x, ownerFig.root.position.y + 1.45, ownerFig.root.position.z);
         caption.lookAt(camera.position);
-        patchAt(ownerFig);
+        patchAt(ownerFig, beat.kind === 'strike' ? STRIKE_PATCH_HALF_AXIS_SCALE : 1);
       }
       actor.animate(dt, false, time, beat.kind === 'strike' && runner.elapsed < STRIKE_POSE_S);
       if (frame.done) {

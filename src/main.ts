@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { AsciiPass } from './ascii';
 import { buildWorld, MAP_W, MAP_H } from './scene';
-import { makeHuman, loadRobotFactory, stepUnit, Unit } from './units';
+import { loadHumanFactory, loadRobotFactory, stepUnit, Unit } from './units';
 
 const params = new URLSearchParams(location.search);
 const CAPTURE = params.has('capture');
@@ -60,17 +60,26 @@ function addUnit(name: string, obj: { root: THREE.Object3D; animate: Unit['anima
   units.push(u);
   return u;
 }
-addUnit('Runner', makeHuman(0x30f0ff, { visor: 0xffffff }), [v(2, 4), v(5, 4), v(5, 7)], 1.6);
-addUnit('Hacker', makeHuman(0x70ffc0, { coat: true, visor: 0x30f0ff }), [v(3, 8), v(4, 8), v(4, 10)], 1.0, 0.8);
-
 const hud = document.getElementById('hud')!;
 let ready = false;
+let partyReady = false;
+let machinesReady = false;
+function markReady() {
+  ready = partyReady && machinesReady;
+}
+loadHumanFactory('models/Human.glb').then((makeParty) => {
+  addUnit('Runner', makeParty(0x30f0ff, 1.3), [v(2, 4), v(5, 4), v(5, 7)], 1.6);
+  addUnit('Hacker', makeParty(0x70ffc0, 1.3), [v(3, 8), v(4, 8), v(4, 10)], 1.0, 0.8);
+  partyReady = true;
+  markReady();
+}).catch(() => {});
 loadRobotFactory('models/RobotExpressive.glb').then((makeRobot) => {
   addUnit('Hunter', makeRobot(0xff3030, 1.35), [v(10, 6), v(6, 6)], 1.2, 0.4);
   addUnit('Sentinel', makeRobot(0xff6a20, 1.7), [v(10, 10)], 0);
   units[units.length - 1].root.rotation.y = -2.3;
-  ready = true;
-});
+  machinesReady = true;
+  markReady();
+}).catch(() => {});
 
 // ---- input
 const keys = new Set<string>();

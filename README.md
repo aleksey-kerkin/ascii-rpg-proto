@@ -24,4 +24,4 @@ URL params: `?cell=8` (cell width px), `?zoom=1.6`, `?still` (no auto-orbit), `?
 
 ## Assets
 - `public/models/RobotExpressive.glb`: "RobotExpressive" by Tomás Laulhé (Quaternius), CC0 1.0, from the three.js examples repo (modified by Don McCurdy). Used for the red/orange machine units.
-- The party humans are built in code from primitives (src/units.ts) and animated procedurally.
+- `public/models/Human.glb`: Quaternius Universal Animation Library, CC0 1.0. One skinned humanoid from that library, with three clips renamed Idle, Walking, and Punch (source names Idle_Loop, Walk_Loop, Punch_Jab). The rest of the library is not included. Used for both party figures.
