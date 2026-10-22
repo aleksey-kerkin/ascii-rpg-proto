@@ -30,7 +30,7 @@ const MAP_H = state.map.height;
 
 const STEP_S = 0.32;
 const STRIKE_POSE_S = 0.4;
-const STRIKE_PATCH_HALF_AXIS_SCALE = 1 / 2.5;
+const STRIKE_PATCH_HALF_AXIS_SCALE = 1 / 2.5 / 2;
 
 type Phase = 'loading' | 'spawn' | 'live' | 'failed';
 let phase: Phase = 'loading';
