@@ -5,6 +5,6 @@ export default defineConfig({
   preview: { port: 4173 },
   build: { rollupOptions: { input: ['index.html', 'battle.html'] } },
   test: {
-    include: ['src/core/**/*.test.ts', 'src/tactics/**/*.test.ts', 'src/battle/**/*.test.ts'],
+    include: ['src/core/**/*.test.ts', 'src/tactics/**/*.test.ts', 'src/battle/**/*.test.ts', 'src/pixels.test.ts'],
   },
 });
