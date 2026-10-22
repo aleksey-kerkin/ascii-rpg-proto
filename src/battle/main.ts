@@ -30,6 +30,7 @@ const MAP_H = state.map.height;
 
 const STEP_S = 0.32;
 const STRIKE_POSE_S = 0.4;
+const STRIKE_PATCH_HALF_AXIS_SCALE = 1 / 2.5;
 
 type Phase = 'loading' | 'spawn' | 'live' | 'failed';
 let phase: Phase = 'loading';
@@ -276,7 +277,7 @@ function setRing(fig: Figure, team: string, active: boolean) {
   fig.ring = ring;
 }
 
-function patchAt(fig: Figure) {
+function patchAt(fig: Figure, halfAxisScale = 1) {
   const box = new THREE.Box3().setFromObject(fig.root);
   if (box.isEmpty()) {
     ascii.setPatch(null);
@@ -313,8 +314,8 @@ function patchAt(fig: Figure) {
   ascii.setPatch({
     centerX: pxToCells(ellipse.centerX, cell.x),
     centerY: pxToCells(ellipse.centerY, cell.y),
-    halfW: pxToCells(ellipse.halfW, cell.x),
-    halfH: pxToCells(ellipse.halfH, cell.y),
+    halfW: pxToCells(ellipse.halfW, cell.x) * halfAxisScale,
+    halfH: pxToCells(ellipse.halfH, cell.y) * halfAxisScale,
   });
 }
 
@@ -607,7 +608,7 @@ function step(dt: number) {
         paintCaption(frame.text, teamColor(owner.team), frame.alpha);
         caption.position.set(ownerFig.root.position.x, ownerFig.root.position.y + 1.45, ownerFig.root.position.z);
         caption.lookAt(camera.position);
-        patchAt(ownerFig);
+        patchAt(ownerFig, beat.kind === 'strike' ? STRIKE_PATCH_HALF_AXIS_SCALE : 1);
       }
       actor.animate(dt, false, time, beat.kind === 'strike' && runner.elapsed < STRIKE_POSE_S);
       if (frame.done) {
