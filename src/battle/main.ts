@@ -3,7 +3,7 @@ import { createBattle } from '../core';
 import type { BattleState, Cell, Command, Coord } from '../core';
 import { AsciiPass } from '../ascii';
 import { tagUnit } from '../scene';
-import { makeHuman, loadRobotFactory } from '../units';
+import { loadHumanFactory, loadRobotFactory } from '../units';
 import { patchEllipse, pxToCells } from '../pixels';
 import { firstEncounter } from '../tactics/encounter';
 import { pointerGesture } from '../tactics/gesture';
@@ -339,9 +339,6 @@ function placeFigures() {
   rebuildHighlights();
 }
 
-registerFigure('a', 'party', makeHuman(0x30f0ff));
-registerFigure('b', 'party', makeHuman(0x70ffc0, { coat: true, visor: 0x30f0ff }));
-
 type Selection = { kind: 'move'; x: number; y: number } | { kind: 'strike'; id: string } | null;
 let selection: Selection = null;
 let log = '';
@@ -423,7 +420,12 @@ function play(commands: Command[]) {
 
 const hud = document.getElementById('hud')!;
 let ready = false;
-loadRobotFactory('models/RobotExpressive.glb').then((makeRobot) => {
+Promise.all([
+  loadHumanFactory('models/Human.glb'),
+  loadRobotFactory('models/RobotExpressive.glb'),
+]).then(([makeParty, makeRobot]) => {
+  registerFigure('a', 'party', makeParty(0x30f0ff, 1.3));
+  registerFigure('b', 'party', makeParty(0x70ffc0, 1.3));
   registerFigure('c', 'machines', makeRobot(0xff3030, 1.35));
   registerFigure('d', 'machines', makeRobot(0xff6a20, 1.7));
   phase = 'spawn';
