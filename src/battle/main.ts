@@ -4,6 +4,7 @@ import type { BattleState, Cell, Command, Coord } from '../core';
 import { AsciiPass } from '../ascii';
 import { tagUnit } from '../scene';
 import { makeHuman, loadRobotFactory } from '../units';
+import { patchEllipse, pxToCells } from '../pixels';
 import { firstEncounter } from '../tactics/encounter';
 import { pointerGesture } from '../tactics/gesture';
 import {
@@ -276,24 +277,45 @@ function setRing(fig: Figure, team: string, active: boolean) {
 }
 
 function patchAt(fig: Figure) {
-  const world = fig.root.position.clone();
-  world.y += 0.8;
-  world.project(camera);
-  const col = (world.x * 0.5 + 0.5) * ascii.grid.x;
-  const row = (world.y * 0.5 + 0.5) * ascii.grid.y;
-  ascii.setPatch({ x: col, y: row });
-}
-
-function addGlow(root: THREE.Object3D, color: number) {
-  const material = tagUnit(new THREE.MeshBasicMaterial({ color }));
-  const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
-  for (let i = 0; i < 8; i += 1) {
-    const angle = (i / 8) * Math.PI * 2;
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(Math.cos(angle) * 0.42, 0.72, Math.sin(angle) * 0.42);
-    mesh.raycast = () => {};
-    root.add(mesh);
+  const box = new THREE.Box3().setFromObject(fig.root);
+  if (box.isEmpty()) {
+    ascii.setPatch(null);
+    return;
   }
+  const xs = [box.min.x, box.max.x];
+  const ys = [box.min.y, box.max.y];
+  const zs = [box.min.z, box.max.z];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const x of xs) {
+    for (const y of ys) {
+      for (const z of zs) {
+        const p = new THREE.Vector3(x, y, z).project(camera);
+        const px = (p.x * 0.5 + 0.5) * ascii.analyse.uniforms.res.value.x;
+        const py = (p.y * 0.5 + 0.5) * ascii.analyse.uniforms.res.value.y;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+    }
+  }
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (!(w > 0) || !(h > 0)) {
+    ascii.setPatch(null);
+    return;
+  }
+  const ellipse = patchEllipse({ x: minX, y: minY, w, h });
+  const cell = ascii.analyse.uniforms.cellPx.value;
+  ascii.setPatch({
+    centerX: pxToCells(ellipse.centerX, cell.x),
+    centerY: pxToCells(ellipse.centerY, cell.y),
+    halfW: pxToCells(ellipse.halfW, cell.x),
+    halfH: pxToCells(ellipse.halfH, cell.y),
+  });
 }
 
 function registerFigure(unitId: string, team: string, obj: Figure) {
@@ -301,7 +323,6 @@ function registerFigure(unitId: string, team: string, obj: Figure) {
   scene.add(obj.root);
   figuresById.set(unitId, obj);
   setRing(obj, team, state.queue[state.activeIndex] === unitId);
-  addGlow(obj.root, team === 'party' ? 0x20e8ff : 0xff2a2a);
 }
 
 function placeFigures() {

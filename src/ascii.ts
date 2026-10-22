@@ -29,9 +29,10 @@ uniform float edgeOn;
 uniform float depthThr;
 uniform float gain;
 uniform float haloDim;
+uniform vec2 cellCss;   // character cell in CSS px
 uniform float patchOn;
 uniform vec2 patchCenter;
-uniform float patchRadius;
+uniform vec2 patchHalf;
 ${HASH}
 const float EDGE0 = ${EDGE_START}.0;
 const float RAIN0 = ${RAIN_START}.0;
@@ -49,23 +50,27 @@ void main(){
   vec2 sCell = cell;
 
   // ---- glitch blocks: displaced + scrambled rectangles, re-rolled ~9x/sec
+  // Sizes are the pixel sizes of a 10x13 cell, divided by the current CSS cell.
   float slot = floor(time*9.0);
   float glitched = 0.0;
   for(int i=0;i<4;i++){
     vec4 h = h42(vec2(slot, float(i)*17.3));
     if(h.x < glitchAmt){
       vec4 g = h42(vec2(slot*1.91 + 3.0, float(i)*5.1));
-      vec2 sz = vec2(3.0 + floor(g.z*16.0), 1.0 + floor(g.w*3.0));
+      float widthPx = 30.0 + floor(g.z*16.0) * 10.0;
+      float heightPx = 13.0 + floor(g.w*3.0) * 13.0;
+      vec2 sz = vec2(widthPx / cellCss.x, heightPx / cellCss.y);
       vec2 pos = floor(g.xy * grid);
       if(cell.x>=pos.x && cell.y>=pos.y && cell.x<pos.x+sz.x && cell.y<pos.y+sz.y){
         glitched = 1.0;
-        sCell.x += floor((h.w-0.5)*10.0);
+        sCell.x += floor((h.w-0.5) * 100.0 / cellCss.x);
       }
     }
   }
-  if(patchOn > 0.5 && distance(cell, patchCenter) <= patchRadius){
+  vec2 ellipse = (cell - patchCenter) / max(patchHalf, vec2(1e-4));
+  if(patchOn > 0.5 && length(ellipse) <= 1.0){
     glitched = 1.0;
-    sCell.x += floor((h21(cell + slot) - 0.5) * 8.0);
+    sCell.x += floor((h21(cell + slot) - 0.5) * 80.0 / cellCss.x);
   }
 
   // ---- gather scene samples under the cell
@@ -94,11 +99,12 @@ void main(){
 
   if(cov < 0.28){
     // ---- void: faint falling code
-    float col = sCell.x;
+    float centerX = (cell.x + 0.5) * cellCss.x;
+    float col = floor(centerX / 10.0);
     float colOn = step(0.45, h11(col*3.17));
-    float speed = 6.0 + h11(col*1.7)*14.0;
-    float len = 6.0 + h11(col*9.1)*18.0;
-    float span = grid.y + len + 20.0;
+    float speed = (78.0 + h11(col*1.7)*182.0) / cellCss.y;
+    float len = (78.0 + h11(col*9.1)*234.0) / cellCss.y;
+    float span = grid.y + len + (260.0 / cellCss.y);
     float head = mod(time*speed + h11(col)*span, span);
     float fromTop = grid.y - 1.0 - cell.y;
     float dist = head - fromTop;
@@ -215,9 +221,10 @@ export class AsciiPass {
         res: { value: new THREE.Vector2() }, cellPx: { value: new THREE.Vector2() }, grid: { value: this.grid },
         time: { value: 0 }, rainAmt: { value: 0.6 }, glitchAmt: { value: 0.35 }, edgeOn: { value: 1 },
         depthThr: { value: 0.008 }, gain: { value: 1.15 }, haloDim: { value: 0.45 },
+        cellCss: { value: new THREE.Vector2(10, 13) },
         patchOn: { value: 0 },
         patchCenter: { value: new THREE.Vector2() },
-        patchRadius: { value: 3 },
+        patchHalf: { value: new THREE.Vector2() },
       },
     });
     this.draw = new THREE.ShaderMaterial({
@@ -241,11 +248,14 @@ export class AsciiPass {
 
   setCellSize(px: number) { this.cellSize = Math.max(4, Math.min(32, px)); this.updateCells(); }
 
-  setPatch(cell: { x: number; y: number } | null) {
+  setPatch(patch: { centerX: number; centerY: number; halfW: number; halfH: number } | null) {
     const on = this.analyse.uniforms.patchOn;
     const center = this.analyse.uniforms.patchCenter;
-    on.value = cell ? 1 : 0;
-    if (cell) center.value.set(cell.x, cell.y);
+    const half = this.analyse.uniforms.patchHalf;
+    on.value = patch ? 1 : 0;
+    if (!patch) return;
+    center.value.set(patch.centerX, patch.centerY);
+    half.value.set(patch.halfW, patch.halfH);
   }
 
   private updateCells() {
@@ -256,6 +266,7 @@ export class AsciiPass {
     this.cellRT.setSize(this.grid.x, this.grid.y);
     const u = this.analyse.uniforms, d = this.draw.uniforms;
     u.res.value.set(W, H); u.cellPx.value.set(cw, ch);
+    u.cellCss.value.set(cw / this.pixelRatio, ch / this.pixelRatio);
     d.cellPx.value.set(cw, ch); d.res.value.set(W, H);
   }
 
