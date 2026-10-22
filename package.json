@@ -12,7 +12,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "CC-BY-NC-ND-4.0",
   "dependencies": {
     "three": "^0.186.1"
   },
