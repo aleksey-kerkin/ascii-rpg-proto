@@ -10,6 +10,9 @@ export const EDGE_START = RAMP.length;
 export const RAIN_START = RAMP.length + EDGES.length;
 export const RAIN_COUNT = [...RAIN].length;
 
+// Scene cells store glyphIndex + SCENE_BIT in the cell alpha. 128 sits above every current glyph.
+export const SCENE_BIT = 128;
+
 export const GLYPH_W = 48;
 export const GLYPH_H = 64;
 export const ATLAS_COLS = 8;
