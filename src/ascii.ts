@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { buildAtlas, EDGE_START, RAIN_START, RAIN_COUNT, RAMP } from './atlas';
+import { buildAtlas, EDGE_START, RAIN_START, RAIN_COUNT, RAMP, SCENE_BIT } from './atlas';
 
 /**
  * Two-pass ASCII post-process.
  *  Pass A (one fragment per character cell): analyses the scene pixels under the cell
  *    -> picks a glyph (luminance ramp / directional edge / rain / glitch) and a tint.
- *  Pass B (full screen): draws the chosen glyph from a font atlas, tinted.
+ *    A scene cell stores glyph + SCENE_BIT in alpha. Void and rain do not.
+ *  Pass B (full screen): draws the chosen glyph from a font atlas.
+ *    When bgOn is on, a scene cell is filled with color * 0.5 and a lighter glyph.
  * Unit pixels are tagged by the scene with alpha 0.5 (env = 1, void = 0), so units
  * keep their saturated colour and get denser glyphs for readability.
  */
@@ -38,6 +40,7 @@ const float EDGE0 = ${EDGE_START}.0;
 const float RAIN0 = ${RAIN_START}.0;
 const float RAINN = ${RAIN_COUNT}.0;
 const float RAMPN = ${RAMP.length}.0;
+const float SCENE_BIT = ${SCENE_BIT}.0;
 const vec3 MATRIX = vec3(0.18, 1.0, 0.42);
 
 float rainGlyph(vec2 cell, float rate){
@@ -96,6 +99,7 @@ void main(){
   cov /= S; unit /= S;
 
   vec3 outC; float glyph = 0.0;
+  float scene = 0.0;
 
   if(cov < 0.28){
     // ---- void: faint falling code
@@ -115,6 +119,7 @@ void main(){
       outC = mix(MATRIX*0.55, vec3(0.75,1.0,0.8), step(dist, 0.5)) * k * rainAmt;
     }
   } else {
+    scene = 1.0;
     vec3 c = pow(acc / max(cov*S, 1.0), vec3(1.0/2.2));   // linear -> display
     float mx = max(c.r, max(c.g, c.b));
     float mn = min(c.r, min(c.g, c.b));
@@ -163,7 +168,8 @@ void main(){
     else if(r < 0.65){ outC = outC.gbr * 1.3; }
   }
 
-  gl_FragColor = vec4(clamp(outC, 0.0, 1.0), glyph / 255.0);
+  // Glitch above can replace the glyph. The scene flag stays with the sampled cell.
+  gl_FragColor = vec4(clamp(outC, 0.0, 1.0), (glyph + scene * SCENE_BIT) / 255.0);
 }
 `;
 
@@ -175,17 +181,25 @@ uniform vec2 grid;
 uniform vec2 cellPx;
 uniform vec2 atlasGrid;
 uniform float fill;
+uniform float bgOn;
 uniform vec2 res;
+const float SCENE_BIT = ${SCENE_BIT}.0;
 void main(){
   vec2 cf = gl_FragCoord.xy / cellPx;
   vec2 cell = floor(cf);
   vec2 f = fract(cf);
   vec4 d = texture2D(tCells, (cell + 0.5) / grid);
   float g = floor(d.a * 255.0 + 0.5);
+  float scene = step(SCENE_BIT, g);
+  g -= scene * SCENE_BIT;
   vec2 ac = vec2(mod(g, atlasGrid.x), floor(g / atlasGrid.x));
   vec2 auv = vec2((ac.x + f.x) / atlasGrid.x, 1.0 - (ac.y + 1.0 - f.y) / atlasGrid.y);
   float m = texture2D(tAtlas, auv).r;
-  vec3 col = d.rgb * m * 1.15 + d.rgb * fill * step(0.5, g);
+  vec3 plain = d.rgb * m * 1.15 + d.rgb * fill * step(0.5, g);
+  vec3 paper = d.rgb * 0.5;
+  vec3 ink = min(d.rgb * 1.35, vec3(1.0));
+  vec3 filled = mix(paper, ink, m);
+  vec3 col = mix(plain, filled, scene * step(0.5, bgOn));
   // subtle CRT: scanline + vignette
   float scan = 0.93 + 0.07 * sin(gl_FragCoord.y * 3.14159);
   vec2 uv = gl_FragCoord.xy / res - 0.5;
@@ -232,7 +246,7 @@ export class AsciiPass {
       uniforms: {
         tCells: { value: this.cellRT.texture }, tAtlas: { value: atlas.texture }, grid: { value: this.grid },
         cellPx: { value: new THREE.Vector2() }, atlasGrid: { value: new THREE.Vector2(atlas.cols, atlas.rows) },
-        fill: { value: 0.07 }, res: { value: new THREE.Vector2() },
+        fill: { value: 0.07 }, bgOn: { value: 1 }, res: { value: new THREE.Vector2() },
       },
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.analyse);

@@ -530,6 +530,10 @@ addEventListener('keydown', (e) => {
     const u = ascii.analyse.uniforms.edgeOn;
     u.value = 1 - u.value;
   }
+  if (e.key === 'b' || e.key === 'B') {
+    const u = ascii.draw.uniforms.bgOn;
+    u.value = 1 - u.value;
+  }
   if (e.key === 'h' || e.key === 'H') hud.style.display = hud.style.display === 'none' ? '' : 'none';
 });
 addEventListener('keyup', (e) => keys.delete(e.key));
@@ -559,13 +563,14 @@ if (params.has('hidehud')) hud.style.display = 'none';
 
 function updateHud() {
   const u = ascii.analyse.uniforms;
+  const bgOn = ascii.draw.uniforms.bgOn;
   const activeId = state.status.kind === 'ongoing' ? state.queue[state.activeIndex] : '—';
   const active = state.units.find((unit) => unit.id === activeId);
   let text =
     `ASCII SIMULATION // render test\n` +
     `cell ${ascii.cellSize}px  grid ${ascii.grid.x}x${ascii.grid.y}\n` +
     `[+/-] cell size  [drag/←→↑↓] orbit  [wheel] zoom\n` +
-    `[O] auto-orbit ${cam.orbit ? 'on' : 'off'}  [G] glitch ${u.glitchAmt.value ? 'on' : 'off'}  [R] rain ${u.rainAmt.value ? 'on' : 'off'}  [E] edges ${u.edgeOn.value ? 'on' : 'off'}  [H] hud\n` +
+    `[O] auto-orbit ${cam.orbit ? 'on' : 'off'}  [G] glitch ${u.glitchAmt.value ? 'on' : 'off'}  [R] rain ${u.rainAmt.value ? 'on' : 'off'}  [E] edges ${u.edgeOn.value ? 'on' : 'off'}  [B] background ${bgOn.value ? 'on' : 'off'}  [H] hud\n` +
     `active ${activeId}  AP ${active?.ap ?? 0}\n`;
   const unitLines = state.units
     .filter((unit) => unit.alive)
