@@ -91,6 +91,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'g' || e.key === 'G') { const u = ascii.analyse.uniforms.glitchAmt; u.value = u.value > 0 ? 0 : 0.35; }
   if (e.key === 'r' || e.key === 'R') { const u = ascii.analyse.uniforms.rainAmt; u.value = u.value > 0 ? 0 : 0.6; }
   if (e.key === 'e' || e.key === 'E') { const u = ascii.analyse.uniforms.edgeOn; u.value = 1 - u.value; }
+  if (e.key === 'b' || e.key === 'B') { const u = ascii.draw.uniforms.bgOn; u.value = 1 - u.value; }
   if (e.key === 'h' || e.key === 'H') hud.style.display = hud.style.display === 'none' ? '' : 'none';
 });
 addEventListener('keyup', (e) => keys.delete(e.key));
@@ -108,11 +109,12 @@ addEventListener('wheel', (e) => { cam.zoom = THREE.MathUtils.clamp(cam.zoom * (
 if (params.has('hidehud')) hud.style.display = 'none';
 function updateHud() {
   const u = ascii.analyse.uniforms;
+  const bgOn = ascii.draw.uniforms.bgOn;
   hud.textContent =
     `ASCII SIMULATION // render test\n` +
     `cell ${ascii.cellSize}px  grid ${ascii.grid.x}x${ascii.grid.y}\n` +
     `[+/-] cell size  [drag/←→↑↓] orbit  [wheel] zoom\n` +
-    `[O] auto-orbit ${cam.orbit ? 'on' : 'off'}  [G] glitch ${u.glitchAmt.value ? 'on' : 'off'}  [R] rain ${u.rainAmt.value ? 'on' : 'off'}  [E] edges ${u.edgeOn.value ? 'on' : 'off'}  [H] hud`;
+    `[O] auto-orbit ${cam.orbit ? 'on' : 'off'}  [G] glitch ${u.glitchAmt.value ? 'on' : 'off'}  [R] rain ${u.rainAmt.value ? 'on' : 'off'}  [E] edges ${u.edgeOn.value ? 'on' : 'off'}  [B] background ${bgOn.value ? 'on' : 'off'}  [H] hud`;
 }
 
 // ---- loop
