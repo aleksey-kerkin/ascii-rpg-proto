@@ -12,7 +12,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "CC-BY-NC-ND-4.0",
+  "license": "PolyForm-Strict-1.0.0",
   "dependencies": {
     "three": "^0.186.1"
   },
