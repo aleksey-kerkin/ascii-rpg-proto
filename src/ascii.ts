@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildAtlas, EDGE_START, RAIN_START, RAIN_COUNT, RAMP } from './atlas';
+import { buildAtlas, EDGE_START, RAIN_START, RAIN_COUNT, RAMP, SCENE_BIT } from './atlas';
 
 /**
  * Two-pass ASCII post-process.
@@ -38,6 +38,7 @@ const float EDGE0 = ${EDGE_START}.0;
 const float RAIN0 = ${RAIN_START}.0;
 const float RAINN = ${RAIN_COUNT}.0;
 const float RAMPN = ${RAMP.length}.0;
+const float SCENE_BIT = ${SCENE_BIT}.0;
 const vec3 MATRIX = vec3(0.18, 1.0, 0.42);
 
 float rainGlyph(vec2 cell, float rate){
@@ -96,6 +97,7 @@ void main(){
   cov /= S; unit /= S;
 
   vec3 outC; float glyph = 0.0;
+  float scene = 0.0;
 
   if(cov < 0.28){
     // ---- void: faint falling code
@@ -115,6 +117,7 @@ void main(){
       outC = mix(MATRIX*0.55, vec3(0.75,1.0,0.8), step(dist, 0.5)) * k * rainAmt;
     }
   } else {
+    scene = 1.0;
     vec3 c = pow(acc / max(cov*S, 1.0), vec3(1.0/2.2));   // linear -> display
     float mx = max(c.r, max(c.g, c.b));
     float mn = min(c.r, min(c.g, c.b));
@@ -163,7 +166,8 @@ void main(){
     else if(r < 0.65){ outC = outC.gbr * 1.3; }
   }
 
-  gl_FragColor = vec4(clamp(outC, 0.0, 1.0), glyph / 255.0);
+  // Glitch above can replace the glyph. The scene flag stays with the sampled cell.
+  gl_FragColor = vec4(clamp(outC, 0.0, 1.0), (glyph + scene * SCENE_BIT) / 255.0);
 }
 `;
 
@@ -176,12 +180,14 @@ uniform vec2 cellPx;
 uniform vec2 atlasGrid;
 uniform float fill;
 uniform vec2 res;
+const float SCENE_BIT = ${SCENE_BIT}.0;
 void main(){
   vec2 cf = gl_FragCoord.xy / cellPx;
   vec2 cell = floor(cf);
   vec2 f = fract(cf);
   vec4 d = texture2D(tCells, (cell + 0.5) / grid);
   float g = floor(d.a * 255.0 + 0.5);
+  g -= step(SCENE_BIT, g) * SCENE_BIT;
   vec2 ac = vec2(mod(g, atlasGrid.x), floor(g / atlasGrid.x));
   vec2 auv = vec2((ac.x + f.x) / atlasGrid.x, 1.0 - (ac.y + 1.0 - f.y) / atlasGrid.y);
   float m = texture2D(tAtlas, auv).r;
